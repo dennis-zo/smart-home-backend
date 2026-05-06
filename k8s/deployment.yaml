@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-home-deployment
+spec:
+  replicas: 2 # שני מופעים לשרידות
+  selector:
+    matchLabels:
+      app: smart-home
+  template:
+    metadata:
+      labels:
+        app: smart-home
+    spec:
+      containers:
+      - name: smart-home-api
+        image: denniszo/smart-home-backend:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-home-service
+spec:
+  selector:
+    app: smart-home
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer # זה ייתן לך IP פנימי בבית לגשת אליו
