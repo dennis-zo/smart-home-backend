@@ -1,77 +1,62 @@
 import os
 import httpx
 from fastapi import FastAPI, HTTPException
-from dotenv import load_dotenv
-from pydantic import BaseModel
 from typing import List
-load_dotenv() # טוען את המשתנים מקובץ .env
+from app.models import HAEntity, ToggleResponse
 
-app = FastAPI()
+# טעינת משתני סביבה (אם יש קובץ .env)
+from dotenv import load_dotenv
+load_dotenv()
 
-# נתונים להתחברות (ב-Kubernetes נגדיר אותם כ-ConfigMap או Secret)
-HA_URL = os.getenv("HA_URL", "http://192.168.2.240:8123/api")
+app = FastAPI(title="Smart Home Core API")
+
+HA_URL = os.getenv("HA_URL", "http://homeassistant.local:8123/api")
 HA_TOKEN = os.getenv("HA_TOKEN")
+
+if not HA_TOKEN:
+    print("⚠️ Warning: HA_TOKEN is not set in environment variables!")
 
 headers = {
     "Authorization": f"Bearer {HA_TOKEN}",
     "Content-Type": "application/json",
 }
 
-app = FastAPI(title="Smart Home Controller")
-
-# "Interface" למכשיר
-class Device(BaseModel):
-    id: int
-    name: str
-    status: str = "off"
-
-# Database זמני בזיכרון (במקום SQL כרגע)
-db: List[Device] = [
-    Device(id=1, name="Living Room Light"),
-    Device(id=2, name="Kitchen AC")
-]
-
-@app.get("/")
-def read_root():
-    return {"status": "Home Controller Online"}
-
-@app.get("/devices", response_model=List[Device])
-async def get_devices():
-    return db
-
-@app.post("/devices/{device_id}/toggle")
-async def toggle_device(device_id: int):
-    for device in db:
-        if device.id == device_id:
-            device.status = "on" if device.status == "off" else "off"
-            return device
-    return {"error": "Device not found"}
-
-@app.get("/ha/status")
-async def get_ha_status():
-    """בודק אם ה-API של HA זמין"""
+@app.get("/devices", response_model=List[HAEntity])
+async def get_all_devices():
+    """מושך את כל המכשירים מהבית ומסנן רק את האורות והמזגנים"""
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(f"{HA_URL}/", headers=headers)
-            return response.json()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            response = await client.get(f"{HA_URL}/states", headers=headers)
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="HA API Error")
+            
+            raw_entities = response.json()
+            
+            # שימוש ב-List Comprehension חכם עם פילטר
+            return [
+                HAEntity.from_ha(entity) 
+                for entity in raw_entities 
+                if entity["entity_id"].startswith(("light.", "switch.", "climate."))
+            ]
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=500, detail=f"Connection to HA failed: {exc}")
 
-@app.get("/ha/entities")
-async def get_all_entities():
-    """מושך את כל המכשירים והחיישנים מהבית"""
+@app.post("/devices/toggle/{entity_id}", response_model=ToggleResponse)
+async def toggle_device(entity_id: str):
+    """שולח פקודת Toggle (הדלקה/כיבוי) למכשיר ספציפי בבית"""
+    # קביעת ה-domain (למשל: light או switch) מתוך ה-entity_id
+    domain = entity_id.split(".")[0]
+    url = f"{HA_URL}/services/{domain}/toggle"
+    
+    payload = {"entity_id": entity_id}
+    
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"{HA_URL}/states", headers=headers)
+        response = await client.post(url, headers=headers, json=payload)
         if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail="HA Error")
+            raise HTTPException(status_code=response.status_code, detail=f"Failed to toggle device {entity_id}")
         
-        # נחזיר רק רשימה של שמות המכשירים והמצב שלהם (שימוש ב-List Comprehension!)
-        all_states = response.json()
-        return [
-            {
-                "entity_id": entity["entity_id"],
-                "state": entity["state"],
-                "friendly_name": entity.get("attributes", {}).get("friendly_name")
-            }
-            for entity in all_states
-        ]
+        # מושכים את המצב החדש מתוך התשובה של HA
+        result_data = response.json()
+        new_state = result_data[0]["state"] if result_data else "unknown"
+        
+        return ToggleResponse(success=True, entity_id=entity_id, new_state=new_state)
