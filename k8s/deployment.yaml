@@ -17,6 +17,17 @@ spec:
         image: denniszo/smart-home-backend:latest
         ports:
         - containerPort: 80
+        env:
+        - name: HA_URL
+          valueFrom:
+            secretKeyRef:
+              name: ha-credentials
+              key: HA_URL
+        - name: HA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: ha-credentials
+              key: HA_TOKEN
         resources:
           requests:
             memory: "128Mi"
@@ -34,6 +45,6 @@ spec:
     app: smart-home
   ports:
     - protocol: TCP
-      port: 80
+      port: 8001
       targetPort: 80
   type: LoadBalancer # זה ייתן לך IP פנימי בבית לגשת אליו
