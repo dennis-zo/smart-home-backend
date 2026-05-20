@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: smart-home-deployment
 spec:
-  replicas: 2 # שני מופעים לשרידות
+  replicas: 1 # שני מופעים לשרידות
   selector:
     matchLabels:
       app: smart-home
@@ -28,6 +28,16 @@ spec:
             secretKeyRef:
               name: ha-credentials
               key: HA_TOKEN
+        - name: TELEGRAM_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: ha-credentials
+              key: TELEGRAM_TOKEN
+        - name: TELEGRAM_CHAT_ID
+          valueFrom:
+            secretKeyRef:
+              name: ha-credentials
+              key: TELEGRAM_CHAT_ID      
         resources:
           requests:
             memory: "128Mi"
