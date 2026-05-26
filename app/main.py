@@ -1,18 +1,46 @@
-from fastapi import FastAPI
+import os
+import sys
+import asyncio
+import logging
 from dotenv import load_dotenv
 
-# חשוב לטעון לפני שאר הייבואים כדי שהמשתנים יהיו זמינים
+# Set up basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+logger = logging.getLogger(__name__)
+
+# Load environment variables first
 load_dotenv()
 
-from app.services.telegram_services import telegram_router, send_telegram_message
-from app.services.devices_services import devices_router
+from app.services.home_hardware import get_all_devices
+from app.services.mongo_service import sync_devices_to_db
+from app.controllers.bot_controller import start_polling
 
-app = FastAPI(title="Smart Home Core API")
+async def main():
+    logger.info("Starting Smart Home AI Agent...")
+    
+    # 1. Fetch current devices from Home Assistant
+    logger.info("Fetching devices from Home Assistant...")
+    devices = await get_all_devices()
+    
+    # 2. Sync devices to MongoDB
+    if devices:
+        logger.info(f"Syncing {len(devices)} devices to MongoDB...")
+        await sync_devices_to_db(devices)
+    else:
+        logger.warning("No devices fetched from Home Assistant. The context will be empty.")
+        
+    # 3. Start Telegram Bot Polling
+    await start_polling()
 
-app.include_router(telegram_router)
-app.include_router(devices_router)
-
-# שימוש ב-Lifecycle Event - קורה כשהשרת עולה
-@app.on_event("startup")
-async def on_startup():
-    await send_telegram_message("🚀 *Smart Home Backend Online!*\nRunning smoothly on Raspberry Pi (Kubernetes).")
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Smart Home AI Agent stopped.")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")

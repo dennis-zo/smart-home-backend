@@ -14,3 +14,5 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+k8s_deployment_guide.md

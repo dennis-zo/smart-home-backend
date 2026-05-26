@@ -11,5 +11,5 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 # העתקת הקוד
 COPY ./app /code/app
 
-# הרצת השרת (Uvicorn הוא ה-Server המהיר ביותר לפייתון)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]
+# הרצת הבוט (הרצת הקובץ main.py)
+CMD ["python", "app/main.py"]

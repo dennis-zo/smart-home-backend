@@ -20,7 +20,7 @@ A backend API for managing a smart home environment, built with Python and FastA
 1. Create a virtual environment:
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+   source .venv/bin/activate  # On Windows use `venv\Scripts\activate`
    ```
 
 2. Install dependencies:
