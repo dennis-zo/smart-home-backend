@@ -34,7 +34,11 @@ async def main():
     else:
         logger.warning("No devices fetched from Home Assistant. The context will be empty.")
         
-    # 3. Start Telegram Bot Polling
+    # 3. Start HA WebSocket Event Listener in background
+    from app.services.ha_listener import start_ha_listener
+    asyncio.create_task(start_ha_listener())
+        
+    # 4. Start Telegram Bot Polling
     await start_polling()
 
 if __name__ == "__main__":

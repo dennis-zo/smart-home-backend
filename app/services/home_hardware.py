@@ -1,7 +1,7 @@
 import os
 import httpx
-from typing import List
 import logging
+from typing import List, Optional
 from app.models.device_model import HAEntity, ToggleResponse
 
 logger = logging.getLogger(__name__)
@@ -36,14 +36,25 @@ async def get_all_devices() -> List[HAEntity]:
         logger.error(f"Failed to fetch devices from Home Assistant: {e}")
         return []
 
-async def toggle_device(entity_id: str) -> ToggleResponse:
+async def control_device(entity_id: str, action: str, timer_minutes: Optional[int] = None) -> ToggleResponse:
     """
-    Toggles a device state in Home Assistant.
+    Controls a device state in Home Assistant (turn_on, turn_off, toggle).
+    Supports native Switcher timers if timer_minutes is provided.
     """
     domain = entity_id.split(".")[0]
-    url = f"{HA_URL}/services/{domain}/toggle"
-    payload = {"entity_id": entity_id}
     
+    if action == "turn_on" and timer_minutes is not None:
+        url = f"{HA_URL}/services/switcher_kis/turn_on_with_timer"
+        payload = {
+            "entity_id": entity_id,
+            "timer_minutes": timer_minutes
+        }
+    else:
+        if action not in ("turn_on", "turn_off", "toggle"):
+            raise ValueError(f"Invalid action: {action}")
+        url = f"{HA_URL}/services/{domain}/{action}"
+        payload = {"entity_id": entity_id}
+        
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=get_headers(), json=payload)
@@ -56,13 +67,19 @@ async def toggle_device(entity_id: str) -> ToggleResponse:
                 success=True, 
                 entity_id=entity_id, 
                 new_state=new_state,
-                message=f"Successfully toggled to {new_state}"
+                message=f"Successfully set {entity_id} to {new_state}"
             )
     except Exception as e:
-        logger.error(f"Failed to toggle device {entity_id}: {e}")
+        logger.error(f"Failed to control device {entity_id} ({action}): {e}")
         return ToggleResponse(
             success=False, 
             entity_id=entity_id, 
             new_state="unknown",
             message=str(e)
         )
+
+async def toggle_device(entity_id: str) -> ToggleResponse:
+    """
+    Toggles a device state in Home Assistant.
+    """
+    return await control_device(entity_id, "toggle")

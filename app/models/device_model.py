@@ -28,13 +28,19 @@ class DeviceState(BaseModel):
     entity_id: str
     state: str
     friendly_name: Optional[str] = None
+    supports_timer: bool = False
+    timer_active: bool = False
+    timer_end: Optional[str] = None
     
     @classmethod
     def from_ha_entity(cls, entity: HAEntity) -> "DeviceState":
         return cls(
             entity_id=entity.entity_id,
             state=entity.state,
-            friendly_name=entity.friendly_name
+            friendly_name=entity.friendly_name,
+            supports_timer=False,
+            timer_active=False,
+            timer_end=None
         )
 
 class ToggleResponse(BaseModel):

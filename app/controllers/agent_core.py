@@ -6,7 +6,8 @@ from google import genai
 from google.genai import types
 from app.agents.orchestrator import get_system_instruction
 from app.agents.tool_definitions import agent_tools
-from app.services.mongo_service import get_device_context
+from app.services.mongo_service import get_device_context, sync_devices_to_db
+from app.services.home_hardware import get_all_devices
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +31,21 @@ async def process_user_message(user_id: int, text: str) -> str:
     if not client:
         return "I'm sorry, my AI backend is not configured correctly (missing API key)."
 
-    # 1. Fetch current device context from MongoDB
+    # 1. Fetch fresh states from Home Assistant and sync to MongoDB
+    logger.info("Fetching fresh device states from Home Assistant...")
+    try:
+        devices = await get_all_devices()
+        if devices:
+            await sync_devices_to_db(devices)
+    except Exception as e:
+        logger.error(f"Failed to sync fresh devices to DB before message processing: {e}")
+
+    # 2. Fetch current device context from MongoDB
     device_context = await get_device_context()
     
-    # 2. Build the dynamic system prompt
-    dynamic_system_instruction = (
-        f"{get_system_instruction()}\n\n"
-        f"--- CURRENT HOME CONTEXT ---\n"
-        f"{device_context}\n"
-        f"----------------------------\n"
-    )
+    # 3. Build the system prompt (static instructions only)
+    dynamic_system_instruction = get_system_instruction()
+
 
     # 3. Initialize or retrieve the chat session
     if user_id not in _sessions:

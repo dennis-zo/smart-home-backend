@@ -11,5 +11,5 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 # העתקת הקוד
 COPY ./app /code/app
 
-# הרצת הבוט (הרצת הקובץ main.py)
-CMD ["python", "app/main.py"]
+# הרצת הבוט (הרצת הקוד כמודול)
+CMD ["python", "-m", "app.main"]
