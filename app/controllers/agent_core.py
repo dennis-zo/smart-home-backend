@@ -12,6 +12,7 @@ from app.services.home_hardware import get_all_devices
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 # Initialize the Gemini client
 if GEMINI_API_KEY:
@@ -55,7 +56,7 @@ async def process_user_message(user_id: int, text: str) -> str:
             temperature=0.0
         )
         _sessions[user_id] = client.aio.chats.create(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             config=config
         )
     else:

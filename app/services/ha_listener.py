@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 HA_URL = os.getenv("HA_URL", "http://localhost:8123/api")
 HA_TOKEN = os.getenv("HA_TOKEN", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 # In-memory dictionary tracking recent bot-initiated actions to suppress duplicate notifications
 # Maps entity_id -> float timestamp
@@ -64,9 +65,9 @@ async def send_ai_notification(entity_id: str, new_state: str, friendly_name: st
     )
     
     try:
-        # Generate content using gemini-2.5-flash
+        # Generate content using Gemini
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt
         )
         notification_text = response.text.strip()
