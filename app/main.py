@@ -38,7 +38,11 @@ async def main():
     from app.services.ha_listener import start_ha_listener
     asyncio.create_task(start_ha_listener())
         
-    # 4. Start Telegram Bot Polling
+    # 4. Send startup message to Telegram
+    from app.controllers.bot_controller import send_startup_notification
+    asyncio.create_task(send_startup_notification(devices))
+
+    # 5. Start Telegram Bot Polling
     await start_polling()
 
 if __name__ == "__main__":

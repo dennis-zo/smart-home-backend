@@ -45,6 +45,81 @@ async def handle_user_message(message: types.Message):
     # Reply to the user
     await message.answer(ai_response)
 
+async def send_startup_notification(devices):
+    """
+    Sends a startup message to the Telegram chat.
+    Uses Gemini to format a friendly Hebrew message listing the online devices,
+    with a fallback to a direct code-generated message.
+    """
+    from app.controllers.agent_core import client
+    
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not bot or not chat_id:
+        logger.warning("Bot or TELEGRAM_CHAT_ID not configured. Cannot send startup notification.")
+        return
+        
+    try:
+        chat_id_val = int(chat_id)
+    except ValueError:
+        chat_id_val = chat_id
+        
+    device_list_str = "\n".join([
+        f"- {d.friendly_name or d.entity_id} ({'פעיל' if d.state == 'on' else 'כבוי' if d.state == 'off' else d.state})"
+        for d in devices
+    ])
+    
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    prompt = (
+        "Generate a friendly, welcoming startup notification in Hebrew for a smart home system. "
+        "Announce that the system is now up and running (online). "
+        "List the following connected devices that can be controlled and their current status:\n"
+        f"{device_list_str}\n\n"
+        "Keep it friendly, clear, and formatted nicely with emojis. "
+        "Respond ONLY with the final Hebrew text, no quotes, no extra remarks."
+    )
+    
+    notification_text = None
+    if client:
+        try:
+            logger.info("Generating startup message using Gemini...")
+            response = await client.aio.models.generate_content(
+                model=gemini_model,
+                contents=prompt
+            )
+            notification_text = response.text.strip()
+        except Exception as e:
+            logger.error(f"Failed to generate startup message using Gemini: {e}")
+            
+    if not notification_text:
+        # Fallback Hebrew message
+        device_lines = []
+        for d in devices:
+            status = "פעיל" if d.state == "on" else "כבוי" if d.state == "off" else d.state
+            device_lines.append(f"• {d.friendly_name or d.entity_id}: {status}")
+        
+        devices_formatted = "\n".join(device_lines)
+        notification_text = (
+            "🤖 *מערכת הבית החכם עלתה בהצלחה!*\n\n"
+            "המערכת מחוברת ומוכנה לקבלת פקודות. 🚀\n\n"
+            "🔌 *המכשירים הזמינים לשליטה:*\n"
+            f"{devices_formatted}"
+        )
+        
+    try:
+        logger.info(f"Sending startup notification to Telegram chat {chat_id}...")
+        try:
+            await bot.send_message(chat_id=chat_id_val, text=notification_text, parse_mode="Markdown")
+        except Exception as e:
+            logger.warning(f"Failed to send startup message with Markdown parsing: {e}. Retrying as HTML or plain text...")
+            try:
+                await bot.send_message(chat_id=chat_id_val, text=notification_text, parse_mode="HTML")
+            except Exception as e_html:
+                logger.warning(f"Failed to send startup message with HTML parsing: {e_html}. Retrying as plain text...")
+                await bot.send_message(chat_id=chat_id_val, text=notification_text)
+        logger.info("Startup notification sent successfully.")
+    except Exception as e:
+        logger.error(f"Failed to send startup notification via Telegram: {e}")
+
 async def start_polling():
     """
     Starts the Aiogram polling loop.
