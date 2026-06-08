@@ -34,16 +34,22 @@ async def handle_user_message(message: types.Message):
         return
 
     user_id = message.from_user.id
-    logger.info(f"Received message from {user_id}: {message.text}")
+    username = message.from_user.username or message.from_user.first_name or str(user_id)
+    logger.info(f"Received message from {user_id} ({username}): {message.text}")
     
     # Send a typing action to Telegram so the user knows we are processing
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     
+    # Immediately notify the user that the request was received
+    await message.answer("הבקשה בטיפול... ⏳")
+    
     # Route to Agent
-    ai_response = await process_user_message(user_id=user_id, text=message.text)
+    ai_response = await process_user_message(user_id=user_id, text=message.text, username=username)
+
     
     # Reply to the user
     await message.answer(ai_response)
+
 
 async def send_startup_notification(devices):
     """

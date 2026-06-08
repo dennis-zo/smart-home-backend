@@ -16,6 +16,8 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "smarthome_db")
 client = AsyncIOMotorClient(MONGO_URI)
 db = client[MONGO_DB_NAME]
 devices_collection = db["devices"]
+clockwork_collection = db["clockwork"]
+
 
 async def get_switcher_entities() -> List[str]:
     """
