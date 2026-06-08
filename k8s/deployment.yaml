@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: smart-home-api
-          image: denniszo/smart-home-backend:1.0.0
+          image: denniszo/smart-home-backend:2.0.0
           imagePullPolicy: Always
           env:
             - name: HA_URL
@@ -49,7 +49,10 @@ spec:
                   name: smart-home-credentials
                   key: MONGO_URI
             - name: MONGO_DB_NAME
-              value: "smarthome_db"
+              valueFrom:
+                secretKeyRef:
+                  name: smart-home-credentials
+                  key: MONGO_DB_NAME
           resources:
             requests:
               memory: "128Mi"
