@@ -2,8 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: smart-home-deployment
+  namespace: default
 spec:
-  replicas: 2 # שני מופעים לשרידות
+  replicas: 1 # שני מופעים לשרידות
   selector:
     matchLabels:
       app: smart-home
@@ -13,27 +14,46 @@ spec:
         app: smart-home
     spec:
       containers:
-      - name: smart-home-api
-        image: denniszo/smart-home-backend:latest
-        ports:
-        - containerPort: 80
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "500m"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: smart-home-service
-spec:
-  selector:
-    app: smart-home
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 80
-  type: LoadBalancer # זה ייתן לך IP פנימי בבית לגשת אליו
+        - name: smart-home-api
+          image: denniszo/smart-home-backend:1.0.0
+          imagePullPolicy: Always
+          env:
+            - name: HA_URL
+              valueFrom:
+                secretKeyRef:
+                  name: smart-home-credentials
+                  key: HA_URL
+            - name: HA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: smart-home-credentials
+                  key: HA_TOKEN
+            - name: TELEGRAM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: smart-home-credentials
+                  key: TELEGRAM_TOKEN
+            - name: TELEGRAM_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: smart-home-credentials
+                  key: TELEGRAM_CHAT_ID
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: smart-home-credentials
+                  key: GEMINI_API_KEY
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: smart-home-credentials
+                  key: MONGO_URI
+            - name: MONGO_DB_NAME
+              value: "smarthome_db"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"

@@ -1,1 +1,12 @@
-# קובץ Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-home-service
+  namespace: default
+spec:
+  type: ClusterIP
+  selector:
+    app: smart-home
+  ports:
+    - port: 8000
+      targetPort: 8000
