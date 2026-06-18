@@ -124,6 +124,31 @@ async def handle_callback_query(callback_query: types.CallbackQuery):
         else:
             await callback_query.message.answer(f"❌ נכשל להפעיל את {friendly_name}: {result}")
 
+    elif data.startswith("turn_off:"):
+        entity_id = data.split(":", 1)[1]
+        
+        # Answer the callback query so the loading indicator on Telegram disappears
+        await callback_query.answer()
+        
+        # Execute the turn off action using our core tool definition
+        from app.agents.tool_definitions import execute_device_action
+        
+        # Find device friendly name first for a nicer response
+        from app.services.mongo_service import devices_collection
+        device = await devices_collection.find_one({"entity_id": entity_id})
+        friendly_name = device.get("friendly_name") if device else entity_id
+        if not friendly_name:
+            friendly_name = entity_id
+            
+        await callback_query.message.answer(f"סוגר את {friendly_name}... ⏳")
+        
+        result = await execute_device_action(entity_id=entity_id, action="turn_off")
+        
+        if "Success" in result:
+            await callback_query.message.answer(f"✅ {friendly_name} נסגר בהצלחה!")
+        else:
+            await callback_query.message.answer(f"❌ נכשל לסגור את {friendly_name}: {result}")
+
 
 async def send_startup_notification(devices):
     """
@@ -148,7 +173,7 @@ async def send_startup_notification(devices):
         for d in devices
     ])
     
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    from app.controllers.agent_core import generate_content_with_failover
     prompt = (
         "Generate a friendly, welcoming startup notification in Hebrew for a smart home system. "
         "Announce that the system is now up and running (online). "
@@ -162,10 +187,7 @@ async def send_startup_notification(devices):
     if client:
         try:
             logger.info("Generating startup message using Gemini...")
-            response = await client.aio.models.generate_content(
-                model=gemini_model,
-                contents=prompt
-            )
+            response = await generate_content_with_failover(contents=prompt)
             notification_text = response.text.strip()
         except Exception as e:
             logger.error(f"Failed to generate startup message using Gemini: {e}")
