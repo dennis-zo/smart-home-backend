@@ -37,18 +37,92 @@ async def handle_user_message(message: types.Message):
     username = message.from_user.username or message.from_user.first_name or str(user_id)
     logger.info(f"Received message from {user_id} ({username}): {message.text}")
     
-    # Send a typing action to Telegram so the user knows we are processing
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-    
-    # Immediately notify the user that the request was received
-    await message.answer("הבקשה בטיפול... ⏳")
-    
-    # Route to Agent
-    ai_response = await process_user_message(user_id=user_id, text=message.text, username=username)
+    # Intercept "הפעל" message
+    match message.text.strip():
+        case "הפעל":
+            await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+            from app.services.home_hardware import get_all_devices
+            devices = await get_all_devices()
+            devices_to_turn_on = [d for d in devices if d.state == "off"]
+            
+            if not devices_to_turn_on:
+                await message.answer("כל המכשירים כבר מופעלים! 💡")
+                return
+                
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            buttons = []
+            for d in devices_to_turn_on:
+                name = d.friendly_name or d.entity_id
+                buttons.append([InlineKeyboardButton(text=f"הפעל את {name}", callback_data=f"turn_on:{d.entity_id}")])
+                
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+            await message.answer("בחר מכשיר להפעלה: 👇", reply_markup=keyboard)
+        case "תסגור":
+            await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+            from app.services.home_hardware import get_all_devices
+            devices = await get_all_devices()
+            devices_to_turn_off = [d for d in devices if d.state == "on"]
+            
+            if not devices_to_turn_off:
+                await message.answer("כל המכשירים כבר כבויים! 💡")
+                return
+                
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            buttons = []
+            for d in devices_to_turn_off:
+                name = d.friendly_name or d.entity_id
+                buttons.append([InlineKeyboardButton(text=f"תסגור את {name}", callback_data=f"turn_off:{d.entity_id}")])
+                
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+            await message.answer("בחר מכשיר לסגירה: 👇", reply_markup=keyboard)
 
+
+        case _: # זה ה-default,
+            # Send a typing action to Telegram so the user knows we are processing
+            await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+            
+            # Immediately notify the user that the request was received
+            await message.answer("הבקשה בטיפול... ⏳")
     
-    # Reply to the user
-    await message.answer(ai_response)
+            # Route to Agent
+            ai_response = await process_user_message(user_id=user_id, text=message.text, username=username)
+
+            # Reply to the user
+            await message.answer(ai_response)
+
+@dp.callback_query()
+async def handle_callback_query(callback_query: types.CallbackQuery):
+    """
+    Handles inline keyboard button clicks.
+    """
+    data = callback_query.data
+    if not data:
+        return
+        
+    if data.startswith("turn_on:"):
+        entity_id = data.split(":", 1)[1]
+        
+        # Answer the callback query so the loading indicator on Telegram disappears
+        await callback_query.answer()
+        
+        # Execute the turn on action using our core tool definition
+        from app.agents.tool_definitions import execute_device_action
+        
+        # Find device friendly name first for a nicer response
+        from app.services.mongo_service import devices_collection
+        device = await devices_collection.find_one({"entity_id": entity_id})
+        friendly_name = device.get("friendly_name") if device else entity_id
+        if not friendly_name:
+            friendly_name = entity_id
+            
+        await callback_query.message.answer(f"מפעיל את {friendly_name}... ⏳")
+        
+        result = await execute_device_action(entity_id=entity_id, action="turn_on")
+        
+        if "Success" in result:
+            await callback_query.message.answer(f"✅ {friendly_name} הופעל בהצלחה!")
+        else:
+            await callback_query.message.answer(f"❌ נכשל להפעיל את {friendly_name}: {result}")
 
 
 async def send_startup_notification(devices):

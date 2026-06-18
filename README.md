@@ -21,6 +21,10 @@ A backend API for managing a smart home environment, built with Python and FastA
    ```bash
    python -m venv venv
    source .venv/bin/activate  # On Windows use `venv\Scripts\activate`
+   
+   .venv/bin/watchfiles ".venv/bin/python -m debugpy --listen 5678 -m app.main" app # debuger
+
+
    ```
 
 2. Install dependencies:
@@ -30,7 +34,8 @@ A backend API for managing a smart home environment, built with Python and FastA
 
 3. Run the development server:
    ```bash
-   uvicorn app.main:app --reload
+   python -m app.main;  
+   // uvicorn app.main:app --reload
    ```
 
 The API will be available at `http://localhost:8000`.
