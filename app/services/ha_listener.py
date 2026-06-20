@@ -49,7 +49,7 @@ async def send_ai_notification(entity_id: str, new_state: str, friendly_name: st
     """
     Calls Gemini to generate a friendly notification in Hebrew and sends it via Telegram.
     """
-    from app.controllers.agent_core import client
+    from app.controllers.agent_core import client, generate_content_with_failover
     from app.controllers.bot_controller import bot
     
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -66,10 +66,7 @@ async def send_ai_notification(entity_id: str, new_state: str, friendly_name: st
     
     try:
         # Generate content using Gemini
-        response = await client.aio.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt
-        )
+        response = await generate_content_with_failover(contents=prompt)
         notification_text = response.text.strip()
         
         # Send via Telegram

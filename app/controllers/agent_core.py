@@ -16,7 +16,31 @@ from app.services.home_hardware import get_all_devices
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
+# Using an in-memory session history map per user (keyed by user_id)
+_sessions = {}
+_clockwork_sessions = {}
+
+# Parse models configuration
+GEMINI_MODELS_ENV = os.getenv("GEMINI_MODELS", "gemini-3.5-flash")
+GEMINI_MODELS = [m.strip() for m in GEMINI_MODELS_ENV.split(",") if m.strip()]
+if not GEMINI_MODELS:
+    GEMINI_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash"]
+
+_current_model_index = 0
+
+def get_current_model() -> str:
+    global _current_model_index
+    return GEMINI_MODELS[_current_model_index]
+
+def switch_to_next_model():
+    global _current_model_index
+    old_model = get_current_model()
+    _current_model_index = (_current_model_index + 1) % len(GEMINI_MODELS)
+    new_model = get_current_model()
+    logger.info(f"Switching active model from {old_model} to {new_model}")
+    _sessions.clear()
+    _clockwork_sessions.clear()
 
 # Initialize the Gemini client
 if GEMINI_API_KEY:
@@ -25,9 +49,80 @@ else:
     logger.warning("GEMINI_API_KEY is not set. The agent will not be able to call the API.")
     client = None
 
-# Using an in-memory session history map per user (keyed by user_id)
-_sessions = {}
-_clockwork_sessions = {}
+async def generate_content_with_failover(contents, config=None):
+    """
+    Wrapper for client.aio.models.generate_content that supports automatic model failover.
+    """
+    if not client:
+        raise Exception("Gemini client is not initialized.")
+        
+    attempts = 0
+    max_attempts = len(GEMINI_MODELS)
+    last_error = None
+    
+    while attempts < max_attempts:
+        model = get_current_model()
+        try:
+            logger.info(f"Attempting generate_content with model: {model}")
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Error generating content with model {model}: {e}")
+            last_error = e
+            switch_to_next_model()
+            attempts += 1
+            
+    raise Exception(f"All models failed. Last error: {last_error}")
+
+async def send_chat_message_with_failover(user_id: int, chat_type: str, text: str, system_instruction_func, tools, temperature=0.0):
+    """
+    Wrapper for sending messages in a chat session with automatic model failover.
+    """
+    if not client:
+        raise Exception("Gemini client is not initialized.")
+        
+    attempts = 0
+    max_attempts = len(GEMINI_MODELS)
+    last_error = None
+    
+    while attempts < max_attempts:
+        model = get_current_model()
+        
+        if chat_type == "clockwork":
+            sessions_dict = _clockwork_sessions
+        else:
+            sessions_dict = _sessions
+            
+        if user_id not in sessions_dict:
+            logger.info(f"Creating new chat session for user {user_id} using model {model}")
+            system_inst = system_instruction_func()
+            config = types.GenerateContentConfig(
+                system_instruction=system_inst,
+                tools=tools,
+                temperature=temperature
+            )
+            sessions_dict[user_id] = client.aio.chats.create(
+                model=model,
+                config=config
+            )
+            
+        chat = sessions_dict[user_id]
+        
+        try:
+            logger.info(f"Sending message in chat for {chat_type} using model {model}")
+            response = await chat.send_message(text)
+            return response
+        except Exception as e:
+            logger.error(f"Error sending chat message with model {model}: {e}")
+            last_error = e
+            switch_to_next_model()
+            attempts += 1
+            
+    raise Exception(f"All models failed. Last error: {last_error}")
 
 async def classify_message(text: str) -> str:
     """
@@ -49,8 +144,7 @@ async def classify_message(text: str) -> str:
     )
     
     try:
-        response = await client.aio.models.generate_content(
-            model=GEMINI_MODEL,
+        response = await generate_content_with_failover(
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.0,
@@ -61,8 +155,8 @@ async def classify_message(text: str) -> str:
             return "clockwork"
         return "smarthome"
     except Exception as e:
-        logger.error(f"Classification failed: {e}. Defaulting to smarthome.")
-        return "smarthome"
+        logger.error(f"Classification failed completely: {e}")
+        raise e
 
 async def process_user_message(user_id: int, text: str, username: str) -> str:
     """
@@ -73,7 +167,12 @@ async def process_user_message(user_id: int, text: str, username: str) -> str:
         return "I'm sorry, my AI backend is not configured correctly (missing API key)."
 
     # 1. Classify the user request
-    category = await classify_message(text)
+    try:
+        category = await classify_message(text)
+    except Exception as e:
+        logger.error(f"Classification failed completely: {e}")
+        return f"בעיה בחיבור למודל AI:\n{e}"
+        
     logger.info(f"Classified request from {username} as category: {category}")
 
     if category == "clockwork":
@@ -90,27 +189,21 @@ async def process_user_message(user_id: int, text: str, username: str) -> str:
             f"- Current Date: {current_date_str} (יום {day_name_hebrew})\n\n"
         )
         
-        if user_id not in _clockwork_sessions:
-            system_inst = get_clockwork_system_instruction()
-            config = types.GenerateContentConfig(
-                system_instruction=system_inst,
-                tools=clockwork_tools,
-                temperature=0.0
-            )
-            _clockwork_sessions[user_id] = client.aio.chats.create(
-                model=GEMINI_MODEL,
-                config=config
-            )
-            
-        chat = _clockwork_sessions[user_id]
         prompt_with_context = f"{dynamic_context}[User Request]: {text}"
         
         try:
-            response = await chat.send_message(prompt_with_context)
+            response = await send_chat_message_with_failover(
+                user_id=user_id,
+                chat_type="clockwork",
+                text=prompt_with_context,
+                system_instruction_func=get_clockwork_system_instruction,
+                tools=clockwork_tools,
+                temperature=0.0
+            )
             return response.text
         except Exception as e:
             logger.error(f"Error communicating with Gemini (ClockWork): {e}")
-            return "מצטער, נתקלתי בשגיאה בעת עיבוד הבקשה שלך לשעות עבודה."
+            return f"בעיה בחיבור למודל AI:\n{e}"
 
     else:
         # 1. Fetch fresh states from Home Assistant and sync to MongoDB
@@ -128,25 +221,20 @@ async def process_user_message(user_id: int, text: str, username: str) -> str:
         # 3. Build the system prompt (static instructions only)
         dynamic_system_instruction = get_system_instruction()
 
-        # 4. Initialize or retrieve the chat session
-        if user_id not in _sessions:
-            config = types.GenerateContentConfig(
-                system_instruction=dynamic_system_instruction,
-                tools=agent_tools,
-                temperature=0.0
-            )
-            _sessions[user_id] = client.aio.chats.create(
-                model=GEMINI_MODEL,
-                config=config
-            )
-
-        chat = _sessions[user_id]
         prompt_with_context = f"[Latest Device Context]:\n{device_context}\n\n[User Request]: {text}"
 
         try:
-            response = await chat.send_message(prompt_with_context)
+            response = await send_chat_message_with_failover(
+                user_id=user_id,
+                chat_type="smarthome",
+                text=prompt_with_context,
+                system_instruction_func=get_system_instruction,
+                tools=agent_tools,
+                temperature=0.0
+            )
             return response.text
         except Exception as e:
             logger.error(f"Error communicating with Gemini (SmartHome): {e}")
-            return "I'm sorry, I encountered an error while processing your request."
+            return f"בעיה בחיבור למודל AI:\n{e}"
+
 
