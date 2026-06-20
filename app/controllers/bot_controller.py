@@ -37,6 +37,62 @@ async def handle_user_message(message: types.Message):
     username = message.from_user.username or message.from_user.first_name or str(user_id)
     logger.info(f"Received message from {user_id} ({username}): {message.text}")
     
+    # Intercept deletion commands
+    text_stripped = message.text.strip().lower()
+    is_delete = False
+    if text_stripped in ("מחק", "מחיקה", "מחק דיווח", "למחוק", "למחוק דיווח"):
+        is_delete = True
+    elif text_stripped.startswith(("מחק ", "מחיקה ", "למחוק ")):
+        is_delete = True
+        
+    if is_delete:
+        await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        from app.services.mongo_service import clockwork_collection
+        from datetime import datetime
+        
+        # Fetch the last 5 reports for this username
+        cursor = clockwork_collection.find({
+            "name": username
+        }).sort([("date", -1), ("start_time", -1)]).limit(5)
+        records = await cursor.to_list(length=5)
+        
+        if not records:
+            await message.answer("לא נמצאו דיווחים במערכת! 📭")
+            return
+            
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        buttons = []
+        for r in records:
+            r_id = str(r["_id"])
+            date_str = r.get("date", "")
+            try:
+                date_formatted = datetime.strptime(date_str, "%Y-%m-%d").strftime("%d/%m")
+            except Exception:
+                date_formatted = date_str
+                
+            event_type = r.get("type_of_event", "work")
+            hours = r.get("hours")
+            
+            if event_type == "work":
+                start_time = r.get("start_time")
+                end_time = r.get("end_time")
+                if start_time and end_time:
+                    btn_text = f"📅 {date_formatted} | עבודה {start_time}-{end_time} ({hours} ש')"
+                elif start_time:
+                    btn_text = f"📅 {date_formatted} | עבודה פעיל מ-{start_time}"
+                else:
+                    btn_text = f"📅 {date_formatted} | עבודה"
+            elif event_type == "sick":
+                btn_text = f"📅 {date_formatted} | יום מחלה ({hours} ש')"
+            else:
+                btn_text = f"📅 {date_formatted} | יום חופש ({hours} ש')"
+                
+            buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"delete_req:{r_id}")])
+            
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await message.answer("בחר דיווח למחיקה: 👇", reply_markup=keyboard)
+        return
+
     # Intercept "הפעל" message
     match message.text.strip():
         case "הפעל":
@@ -148,6 +204,81 @@ async def handle_callback_query(callback_query: types.CallbackQuery):
             await callback_query.message.answer(f"✅ {friendly_name} נסגר בהצלחה!")
         else:
             await callback_query.message.answer(f"❌ נכשל לסגור את {friendly_name}: {result}")
+
+    elif data.startswith("delete_req:"):
+        record_id = data.split(":", 1)[1]
+        await callback_query.answer()
+        
+        from app.services.mongo_service import clockwork_collection
+        from bson import ObjectId
+        
+        try:
+            record = await clockwork_collection.find_one({"_id": ObjectId(record_id)})
+        except Exception:
+            record = None
+            
+        if not record:
+            await callback_query.message.answer("❌ הדיווח לא נמצא או שכבר נמחק.")
+            return
+            
+        date_str = record.get("date", "")
+        event_type = record.get("type_of_event", "work")
+        hours = record.get("hours")
+        description = record.get("description", "")
+        
+        hebrew_type = "עבודה" if event_type == "work" else "מחלה" if event_type == "sick" else "חופש"
+        
+        details = f"📅 תאריך: {date_str}\n"
+        details += f"🏷️ סוג: {hebrew_type}\n"
+        
+        if event_type == "work":
+            start_time = record.get("start_time")
+            end_time = record.get("end_time")
+            if start_time:
+                details += f"⏰ שעת כניסה: {start_time}\n"
+            if end_time:
+                details += f"⏰ שעת יציאה: {end_time}\n"
+                
+        if hours is not None:
+            details += f"⏳ שעות: {hours}\n"
+            
+        if description:
+            details += f"📝 הערה: {description}\n"
+            
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        confirm_buttons = [
+            [
+                InlineKeyboardButton(text="✅ כן, מחק", callback_data=f"delete_confirm:{record_id}"),
+                InlineKeyboardButton(text="❌ ביטול", callback_data="delete_cancel")
+            ]
+        ]
+        keyboard = InlineKeyboardMarkup(inline_keyboard=confirm_buttons)
+        
+        await callback_query.message.answer(
+            f"❓ *האם אתה בטוח שברצונך למחוק את הדיווח הבא?*\n\n{details}",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+
+    elif data.startswith("delete_confirm:"):
+        record_id = data.split(":", 1)[1]
+        await callback_query.answer()
+        
+        from app.services.mongo_service import clockwork_collection
+        from bson import ObjectId
+        
+        try:
+            result = await clockwork_collection.delete_one({"_id": ObjectId(record_id)})
+            if result.deleted_count > 0:
+                await callback_query.message.answer("✅ הדיווח נמחק בהצלחה!")
+            else:
+                await callback_query.message.answer("❌ הדיווח לא נמצא או שכבר נמחק.")
+        except Exception as e:
+            await callback_query.message.answer(f"❌ שגיאה במחיקת הדיווח: {e}")
+
+    elif data == "delete_cancel":
+        await callback_query.answer("המחיקה בוטלה.")
+        await callback_query.message.answer("המחיקה בוטלה. ↩️")
 
 
 async def send_startup_notification(devices):

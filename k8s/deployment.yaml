@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: smart-home-api
-          image: denniszo/smart-home-backend:2.0.0
+          image: denniszo/smart-home-backend:2.2.0
           imagePullPolicy: Always
           env:
             - name: HA_URL
@@ -43,6 +43,11 @@ spec:
                 secretKeyRef:
                   name: smart-home-credentials
                   key: GEMINI_API_KEY
+            - name: GEMINI_MODELS
+              valueFrom:
+                secretKeyRef:
+                  name: smart-home-credentials
+                  key: GEMINI_MODELS
             - name: MONGO_URI
               valueFrom:
                 secretKeyRef:
