@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: smart-home-api
-          image: denniszo/smart-home-backend:2.2.0
+          image: denniszo/smart-home-backend:2.3.0
           imagePullPolicy: Always
           env:
             - name: HA_URL

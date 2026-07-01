@@ -2,6 +2,7 @@ import os
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from app.controllers.agent_core import process_user_message
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,30 @@ if not TELEGRAM_BOT_TOKEN:
 bot = Bot(token=TELEGRAM_BOT_TOKEN) if TELEGRAM_BOT_TOKEN else None
 dp = Dispatcher()
 
+def get_main_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Returns the main persistent reply keyboard containing quick-action buttons.
+    """
+    keyboard_buttons = [
+        [
+            KeyboardButton(text="תחילת יום עבודה 🟢"),
+            KeyboardButton(text="סיום יום עבודה 🔴")
+        ],
+        [
+            KeyboardButton(text="כמה זמן אני עובד היום? ⏱️"),
+            KeyboardButton(text="מחק דיווח 🗑️")
+        ],
+        [
+            KeyboardButton(text="הפעל 💡"),
+            KeyboardButton(text="תסגור 🔌")
+        ]
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard_buttons,
+        resize_keyboard=True,
+        persistent=True
+    )
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     """
@@ -23,7 +48,7 @@ async def cmd_start(message: types.Message):
         "🤖 Welcome to your Smart Home AI Agent!\n"
         "I can help you control your home. Just tell me what you want to do."
     )
-    await message.answer(welcome_text)
+    await message.answer(welcome_text, reply_markup=get_main_keyboard())
 
 @dp.message()
 async def handle_user_message(message: types.Message):
@@ -35,12 +60,10 @@ async def handle_user_message(message: types.Message):
 
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name or str(user_id)
-    logger.info(f"Received message from {user_id} ({username}): {message.text}")
-    
-    # Intercept deletion commands
+       # Intercept deletion commands
     text_stripped = message.text.strip().lower()
     is_delete = False
-    if text_stripped in ("מחק", "מחיקה", "מחק דיווח", "למחוק", "למחוק דיווח"):
+    if text_stripped in ("מחק", "מחיקה", "מחק דיווח", "למחוק", "למחוק דיווח", "מחק דיווח 🗑️"):
         is_delete = True
     elif text_stripped.startswith(("מחק ", "מחיקה ", "למחוק ")):
         is_delete = True
@@ -57,7 +80,7 @@ async def handle_user_message(message: types.Message):
         records = await cursor.to_list(length=5)
         
         if not records:
-            await message.answer("לא נמצאו דיווחים במערכת! 📭")
+            await message.answer("לא נמצאו דיווחים במערכת! 📭", reply_markup=get_main_keyboard())
             return
             
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -92,17 +115,17 @@ async def handle_user_message(message: types.Message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await message.answer("בחר דיווח למחיקה: 👇", reply_markup=keyboard)
         return
-
+ 
     # Intercept "הפעל" message
     match message.text.strip():
-        case "הפעל":
+        case "הפעל" | "הפעל 💡":
             await bot.send_chat_action(chat_id=message.chat.id, action="typing")
             from app.services.home_hardware import get_all_devices
             devices = await get_all_devices()
             devices_to_turn_on = [d for d in devices if d.state == "off"]
             
             if not devices_to_turn_on:
-                await message.answer("כל המכשירים כבר מופעלים! 💡")
+                await message.answer("כל המכשירים כבר מופעלים! 💡", reply_markup=get_main_keyboard())
                 return
                 
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -113,14 +136,14 @@ async def handle_user_message(message: types.Message):
                 
             keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
             await message.answer("בחר מכשיר להפעלה: 👇", reply_markup=keyboard)
-        case "תסגור":
+        case "תסגור" | "תסגור 🔌":
             await bot.send_chat_action(chat_id=message.chat.id, action="typing")
             from app.services.home_hardware import get_all_devices
             devices = await get_all_devices()
             devices_to_turn_off = [d for d in devices if d.state == "on"]
             
             if not devices_to_turn_off:
-                await message.answer("כל המכשירים כבר כבויים! 💡")
+                await message.answer("כל המכשירים כבר כבויים! 💡", reply_markup=get_main_keyboard())
                 return
                 
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -144,7 +167,7 @@ async def handle_user_message(message: types.Message):
             ai_response = await process_user_message(user_id=user_id, text=message.text, username=username)
 
             # Reply to the user
-            await message.answer(ai_response)
+            await message.answer(ai_response, reply_markup=get_main_keyboard())
 
 @dp.callback_query()
 async def handle_callback_query(callback_query: types.CallbackQuery):
@@ -341,14 +364,14 @@ async def send_startup_notification(devices):
     try:
         logger.info(f"Sending startup notification to Telegram chat {chat_id}...")
         try:
-            await bot.send_message(chat_id=chat_id_val, text=notification_text, parse_mode="Markdown")
+            await bot.send_message(chat_id=chat_id_val, text=notification_text, parse_mode="Markdown", reply_markup=get_main_keyboard())
         except Exception as e:
             logger.warning(f"Failed to send startup message with Markdown parsing: {e}. Retrying as HTML or plain text...")
             try:
-                await bot.send_message(chat_id=chat_id_val, text=notification_text, parse_mode="HTML")
+                await bot.send_message(chat_id=chat_id_val, text=notification_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             except Exception as e_html:
                 logger.warning(f"Failed to send startup message with HTML parsing: {e_html}. Retrying as plain text...")
-                await bot.send_message(chat_id=chat_id_val, text=notification_text)
+                await bot.send_message(chat_id=chat_id_val, text=notification_text, reply_markup=get_main_keyboard())
         logger.info("Startup notification sent successfully.")
     except Exception as e:
         logger.error(f"Failed to send startup notification via Telegram: {e}")
